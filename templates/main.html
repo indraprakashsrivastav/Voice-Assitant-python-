@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% load static %}
+{% block body %}
+
+<style>
+    label {
+        color: white;
+    }
+
+    #voice_command {
+        background-color: black; /* Set background color to black */
+        color: white;            /* Set text color to white */
+        border: none;            /* Remove border if not needed */
+        padding: 10px;           /* Adjust padding as needed */
+        font-size: 20px;         /* Increase font size */
+        width: 350px;            /* Adjust width as needed */
+        /* Add any other styles you require */
+    }
+</style>
+
+<!-- Voice Command Form -->
+<form id="voiceForm" method="post" action="{% url 'main' %}">
+    {% csrf_token %}
+    <label for="voice_command"><strong style="font-size: 20px;">Ask:</strong></label>
+
+    <input type="text" id="voice_command" name="voice_command">
+    <!-- Hidden field to hold the recognized command -->
+    <input type="hidden" id="hidden_command" name="hidden_command">
+</form>
+
+<div style="color: white;font-size: 20px;">
+    <p id="response_text"><strong>Response:</strong> </p>
+</div>
+
+
+
+<!-- JavaScript for Speech Recognition and AJAX -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    function getCSRFToken() {
+        const tokenElement = document.querySelector('[name=csrfmiddlewaretoken]');
+        return tokenElement ? tokenElement.value : '';
+    }
+
+    if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+        const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        recognition.continuous = false; // Stop listening after one result
+
+        const voiceCommandInput = document.getElementById('voice_command');
+        const hiddenCommandInput = document.getElementById('hidden_command');
+        const responseTextElement = document.getElementById('response_text');
+        const voiceForm = document.getElementById('voiceForm');
+        const startButton = document.getElementById('startSpeechRecognition');
+
+        // Start speech recognition on image click
+        startButton.addEventListener('click', function() {
+            recognition.start(); // Start speech recognition on image click
+        });
+
+        recognition.onresult = function(event) {
+            const command = event.results[0][0].transcript.trim(); // Get recognized text
+            voiceCommandInput.value = command; // Fill input field with recognized text
+            hiddenCommandInput.value = command; // Fill hidden input with recognized text
+
+            // Create a FormData object from the form
+            const formData = new FormData(voiceForm);
+
+            // Perform the AJAX request to submit the form data
+            fetch("{% url 'main' %}", {
+                method: 'POST',
+                body: new URLSearchParams(formData),
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCSRFToken()  // Add CSRF token to headers
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Update response text on the page
+                responseTextElement.innerHTML = '<strong>Response:</strong> ' + data.response_text;
+
+                // Use MutationObserver to ensure the text is rendered before speaking
+                const observer = new MutationObserver((mutations) => {
+                    mutations.forEach((mutation) => {
+                        if (mutation.type === 'childList') {
+                            observer.disconnect(); // Stop observing once text is updated
+
+                            // Speak the response text after updating the page
+                            if (window.speechSynthesis) {
+                                const utterance = new SpeechSynthesisUtterance(data.response_text);
+                                utterance.voice = speechSynthesis.getVoices().find(voice => voice.name === 'Google UK English Female') || null;
+                                speechSynthesis.speak(utterance);
+                            }
+                        }
+                    });
+                });
+
+                observer.observe(responseTextElement, { childList: true });
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                responseTextElement.innerHTML = 'An error occurred. Please try again.';
+            });
+        };
+
+        recognition.onerror = function(event) {
+            console.error('Speech recognition error:', event.error);
+            responseTextElement.innerHTML = 'Error occurred during speech recognition. Please try again.';
+        };
+    } else {
+        alert('Speech recognition is not supported in this browser.');
+    }
+});
+</script>
+
+{% endblock %}
